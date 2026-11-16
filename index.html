@@ -635,6 +635,17 @@
       playBeep(750, 0.4);
     });
 
+    document.getElementById('save-settings-btn').addEventListener('click', () => {
+      settings.focus = Math.max(1, Number(setFocusInput.value) || 25);
+      settings.short = Math.max(1, Number(setShortInput.value) || 5);
+      settings.long = Math.max(1, Number(setLongInput.value) || 15);
+      settings.sound = setSoundInput.checked;
+
+      localStorage.setItem('ff_settings', JSON.stringify(settings));
+      resetTimer();
+      alert('Settings saved successfully!');
+    });
+
     // ================= 4. POMODORO TIMER LOGIC =================
     const minutesEl = document.getElementById('minutes');
     const secondsEl = document.getElementById('seconds');
@@ -672,7 +683,7 @@
     function resetTimer() {
       clearInterval(timerInterval);
       isRunning = false;
-      totalSeconds = settings[currentMode] * 60;
+      totalSeconds = set
       remainingSeconds = totalSeconds;
       startBtn.disabled = false;
       pauseBtn.disabled = true;
@@ -685,4 +696,140 @@
       isRunning = true;
       startBtn.disabled = true;
       pauseBtn.disabled = false;
-      statusLabel.textContent = currentMode === 'focus' ? 
+      statusLabel.textContent = currentMode === 'focus' ? 'Focusing...' : 'Break Time...';
+
+      timerInterval = setInterval(() => {
+        if (remainingSeconds > 0) {
+          remainingSeconds--;
+          updateTimerDisplay();
+        } else {
+          clearInterval(timerInterval);
+          isRunning = false;
+          startBtn.disabled = false;
+          pauseBtn.disabled = true;
+
+          if (currentMode === 'focus') {
+            completedSessions++;
+            localStorage.setItem('ff_sessions', completedSessions);
+            sessionCountEl.textContent = completedSessions;
+          }
+
+          const activeTask = document.getElementById('focus-task-input').value.trim() || 'Pomodoro Session';
+          startRingingAlarm(`${activeTask} Completed!`, new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+          resetTimer();
+        }
+      }, 1000);
+    });
+
+    pauseBtn.addEventListener('click', () => {
+      clearInterval(timerInterval);
+      isRunning = false;
+      startBtn.disabled = false;
+      pauseBtn.disabled = true;
+      statusLabel.textContent = 'Paused';
+    });
+
+    resetBtn.addEventListener('click', resetTimer);
+
+    modeBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        modeBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = btn.dataset.mode;
+        circle.style.stroke = currentMode === 'focus' ? 'var(--accent-orange)' : 'var(--accent-blue)';
+        resetTimer();
+      });
+    });
+
+    document.getElementById('clear-stats-btn').addEventListener('click', () => {
+      completedSessions = 0;
+      localStorage.setItem('ff_sessions', 0);
+      sessionCountEl.textContent = 0;
+    });
+
+    // ================= 5. TIMETABLE & LIVE ALARM CHECKER =================
+    const scheduleForm = document.getElementById('schedule-form');
+    const scheduleList = document.getElementById('schedule-list');
+    let tasks = JSON.parse(localStorage.getItem('ff_tasks')) || [];
+
+    function saveTasks() {
+      localStorage.setItem('ff_tasks', JSON.stringify(tasks));
+      renderTasks();
+    }
+
+    function renderTasks() {
+      scheduleList.innerHTML = '';
+      if (tasks.length === 0) {
+        scheduleList.innerHTML = '<p style="text-align:center; color:var(--text-muted); font-size:0.85rem; padding:20px;">Koi task schedule nahi hai. Upar se add karein!</p>';
+        return;
+      }
+
+      tasks.sort((a, b) => a.time.localeCompare(b.time));
+
+      tasks.forEach((task, index) => {
+        const item = document.createElement('div');
+        item.className = `schedule-item ${task.done ? 'done' : ''}`;
+        item.innerHTML = `
+          <div>
+            <div class="task-title" style="font-weight:600;">${task.title}</div>
+            <div class="task-meta">Alarm: ${task.time}</div>
+          </div>
+          <div class="item-actions">
+            <button class="icon-btn btn-secondary" onclick="toggleTask(${index})">${task.done ? 'Undo' : 'Done'}</button>
+            <button class="icon-btn btn-danger" onclick="deleteTask(${index})">Delete</button>
+          </div>
+        `;
+        scheduleList.appendChild(item);
+      });
+    }
+
+    window.toggleTask = (index) => {
+      tasks[index].done = !tasks[index].done;
+      saveTasks();
+    };
+
+    window.deleteTask = (index) => {
+      tasks.splice(index, 1);
+      saveTasks();
+    };
+
+    scheduleForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const title = document.getElementById('work-title').value.trim();
+      const time = document.getElementById('work-time').value;
+      if (!title || !time) return;
+
+      tasks.push({ title, time, done: false, triggeredDate: '' });
+      document.getElementById('work-title').value = '';
+      document.getElementById('work-time').value = '';
+      saveTasks();
+    });
+
+    // Live Clock & Automatic Alarm Trigger Every Second
+    function updateClockAndAlarms() {
+      const now = new Date();
+      document.getElementById('clock-time').textContent = now.toLocaleTimeString();
+
+      const currentHHMM = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const todayStr = now.toDateString();
+
+      tasks.forEach(task => {
+        if (!task.done && task.time === currentHHMM && task.triggeredDate !== todayStr) {
+          task.triggeredDate = todayStr;
+          saveTasks();
+          startRingingAlarm(task.title, task.time);
+        }
+      });
+    }
+
+    setInterval(updateClockAndAlarms, 1000);
+
+    // ================= 6. INITIALIZE APP =================
+    checkAuth();
+    loadSettingsUI();
+    updateTimerDisplay();
+    renderTasks();
+    updateClockAndAlarms();
+  </script>
+</body>
+</html>
